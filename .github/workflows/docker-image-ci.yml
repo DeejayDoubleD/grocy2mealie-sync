@@ -41,7 +41,7 @@ jobs:
       - name: Test
         uses: onichandame/python-test-action@master
         with:
-          deps_list: 'requirement'
+          deps_list: 'requirements.txt'
 
   docker-push:
     needs: unittest
