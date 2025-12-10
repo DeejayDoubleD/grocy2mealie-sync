@@ -30,7 +30,7 @@ jobs:
       run: |
         pylint $(git ls-files '*.py')
 
-  docker:
+  docker-push:
     needs: pylint
     runs-on: ubuntu-latest
     steps:
