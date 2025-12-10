@@ -615,5 +615,128 @@ class TestIntegrationScenarios(unittest.TestCase):
         self.assertEqual(call_kwargs["params"]["per_page"], 200)
 
 
+class TestHealthCheck(unittest.TestCase):
+    """Tests for health_check function."""
+
+    @patch("main.requests.get")
+    @patch("main.grocy.get_volatile_stock")
+    def test_health_check_all_healthy(self, mock_volatile, mock_get):
+        """Test health check when all services are healthy."""
+        mock_volatile_obj = MagicMock()
+        mock_volatile_obj.missing_products = []
+        mock_volatile.return_value = mock_volatile_obj
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_get.return_value = mock_response
+
+        result = main.health_check()
+
+        self.assertEqual(result["status"], "healthy")
+        self.assertTrue(result["grocy"]["reachable"])
+        self.assertIsNone(result["grocy"]["error"])
+        self.assertTrue(result["mealie"]["reachable"])
+        self.assertIsNone(result["mealie"]["error"])
+
+    @patch("main.requests.get")
+    @patch("main.grocy.get_volatile_stock")
+    def test_health_check_grocy_unreachable(self, mock_volatile, mock_get):
+        """Test health check when Grocy is unreachable."""
+        mock_volatile.side_effect = requests.RequestException("Connection refused")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_get.return_value = mock_response
+
+        result = main.health_check()
+
+        self.assertEqual(result["status"], "unhealthy")
+        self.assertFalse(result["grocy"]["reachable"])
+        self.assertIsNotNone(result["grocy"]["error"])
+        self.assertTrue(result["mealie"]["reachable"])
+
+    @patch("main.requests.get")
+    @patch("main.grocy.get_volatile_stock")
+    def test_health_check_mealie_unreachable(self, mock_volatile, mock_get):
+        """Test health check when Mealie is unreachable."""
+        mock_volatile_obj = MagicMock()
+        mock_volatile_obj.missing_products = []
+        mock_volatile.return_value = mock_volatile_obj
+
+        mock_get.side_effect = requests.RequestException("Connection timeout")
+
+        result = main.health_check()
+
+        self.assertEqual(result["status"], "unhealthy")
+        self.assertTrue(result["grocy"]["reachable"])
+        self.assertFalse(result["mealie"]["reachable"])
+        self.assertIsNotNone(result["mealie"]["error"])
+
+    @patch("main.requests.get")
+    @patch("main.grocy.get_volatile_stock")
+    def test_health_check_both_unreachable(self, mock_volatile, mock_get):
+        """Test health check when both services are unreachable."""
+        mock_volatile.side_effect = requests.RequestException("Grocy error")
+        mock_get.side_effect = requests.RequestException("Mealie error")
+
+        result = main.health_check()
+
+        self.assertEqual(result["status"], "unhealthy")
+        self.assertFalse(result["grocy"]["reachable"])
+        self.assertFalse(result["mealie"]["reachable"])
+
+    @patch("main.requests.get")
+    @patch("main.grocy.get_volatile_stock")
+    def test_health_check_grocy_exception(self, mock_volatile, mock_get):
+        """Test health check handles Grocy request exceptions."""
+        mock_volatile.side_effect = requests.RequestException("Network error")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_get.return_value = mock_response
+
+        result = main.health_check()
+
+        self.assertEqual(result["status"], "unhealthy")
+        self.assertFalse(result["grocy"]["reachable"])
+        self.assertIn("Network error", result["grocy"]["error"])
+
+    @patch("main.requests.get")
+    @patch("main.grocy.get_volatile_stock")
+    def test_health_check_mealie_exception(self, mock_volatile, mock_get):
+        """Test health check handles Mealie request exceptions."""
+        mock_volatile_obj = MagicMock()
+        mock_volatile_obj.missing_products = []
+        mock_volatile.return_value = mock_volatile_obj
+
+        mock_get.side_effect = requests.RequestException("Network timeout")
+
+        result = main.health_check()
+
+        self.assertEqual(result["status"], "unhealthy")
+        self.assertTrue(result["grocy"]["reachable"])
+        self.assertFalse(result["mealie"]["reachable"])
+        self.assertIn("Network timeout", result["mealie"]["error"])
+
+    @patch("main.requests.get")
+    @patch("main.grocy.get_volatile_stock")
+    def test_health_check_mealie_api_error(self, mock_volatile, mock_get):
+        """Test health check handles Mealie API errors."""
+        mock_volatile_obj = MagicMock()
+        mock_volatile_obj.missing_products = []
+        mock_volatile.return_value = mock_volatile_obj
+
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_response.raise_for_status.side_effect = requests.HTTPError("Unauthorized")
+        mock_get.return_value = mock_response
+
+        result = main.health_check()
+
+        self.assertEqual(result["status"], "unhealthy")
+        self.assertTrue(result["grocy"]["reachable"])
+        self.assertFalse(result["mealie"]["reachable"])
+
+
 if __name__ == "__main__":
     unittest.main()

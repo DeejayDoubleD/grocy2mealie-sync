@@ -6,3 +6,9 @@ services:
     env_file: 
       - ./sync.env
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "main.py", "health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

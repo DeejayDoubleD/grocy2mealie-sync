@@ -7,6 +7,7 @@ sync intervals.
 """
 from typing import Dict, List
 import os
+import sys
 import time
 import logging
 import requests
@@ -67,7 +68,7 @@ def get_mealie_shopping_list_items(shopping_list_id: str) -> Dict[str, dict]:
         Dict mapping display_lower to {display, foodId, itemId}.
     """
     url = f"{MEALIE_BASE_URL}/api/households/shopping/items"
-    result = {}
+    items_dict = {}
     page = 1
     per_page = 200
 
@@ -84,7 +85,7 @@ def get_mealie_shopping_list_items(shopping_list_id: str) -> Dict[str, dict]:
             display = (it.get("display") or (it.get("food") or {}).get("name") or "").strip()
             if not display:
                 continue
-            result[display.lower()] = {
+            items_dict[display.lower()] = {
                 "display": display,
                 "foodId": it.get("foodId") or (it.get("food") or {}).get("id"),
                 "itemId": it.get("id")
@@ -94,8 +95,8 @@ def get_mealie_shopping_list_items(shopping_list_id: str) -> Dict[str, dict]:
             break
         page += 1
 
-    logger.info("Mealie: %d existing shopping list items found.", len(result))
-    return result
+    logger.info("Mealie: %d existing shopping list items found.", len(items_dict))
+    return items_dict
 
 def add_to_mealie_shopping_list(item_name: str, shopping_list_id: str,
                                 quantity: float = 1.0) -> bool:
@@ -153,7 +154,7 @@ def get_understock_products() -> List[Dict[str, str]]:
         logger.error("Error while requesting Grocy volatile stock: %s", e)
         return []
 
-    result = []
+    products = []
 
     missing_products = getattr(volatile, "missing_products", []) or []
     for item in missing_products:
@@ -161,17 +162,71 @@ def get_understock_products() -> List[Dict[str, str]]:
         pid = getattr(item, "id", None)
 
         if name:
-            result.append({
+            products.append({
                 "id": pid,
                 "name": name
             })
 
     logger.info(
         "Grocy: %d products below minimum stock (volatile.missing_products).",
-        len(result)
+        len(products)
     )
 
-    return result
+    return products
+
+# ------------------------------------------------------------
+# Health Check
+# - Verifies API connectivity and service status
+# ------------------------------------------------------------
+def health_check() -> Dict[str, dict]:
+    """
+    Check health status of the sync service.
+
+    Verifies:
+    - Grocy API is reachable
+    - Mealie API is reachable
+    - Authentication tokens are valid
+
+    Returns:
+        Dict with status and details: {
+            "status": "healthy" | "unhealthy",
+            "grocy": {"reachable": bool, "error": str or None},
+            "mealie": {"reachable": bool, "error": str or None}
+        }
+    """
+    health = {
+        "status": "healthy",
+        "grocy": {"reachable": False, "error": None},
+        "mealie": {"reachable": False, "error": None},
+    }
+
+    # Check Grocy connectivity
+    try:
+        grocy.get_volatile_stock()
+        health["grocy"]["reachable"] = True
+        logger.info("✔ Grocy API is reachable")
+    except requests.RequestException as e:
+        health["grocy"]["reachable"] = False
+        health["grocy"]["error"] = str(e)
+        health["status"] = "unhealthy"
+        logger.error("❌ Grocy API unreachable: %s", e)
+
+    # Check Mealie connectivity
+    try:
+        url = f"{MEALIE_BASE_URL}/api/households/shopping/items"
+        resp = requests.get(
+            url, headers=HEADERS, params={"page": 1, "per_page": 1}, timeout=10
+        )
+        resp.raise_for_status()
+        health["mealie"]["reachable"] = True
+        logger.info("✔ Mealie API is reachable")
+    except requests.RequestException as e:
+        health["mealie"]["reachable"] = False
+        health["mealie"]["error"] = str(e)
+        health["status"] = "unhealthy"
+        logger.error("❌ Mealie API unreachable: %s", e)
+
+    return health
 
 # ------------------------------------------------------------
 # Main Loop
@@ -214,4 +269,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1 and sys.argv[1] == "health":
+        result = health_check()
+        if result["status"] == "healthy":
+            logger.info("Health check passed: all services operational")
+            sys.exit(0)
+        else:
+            logger.error("Health check failed: one or more services unreachable")
+            sys.exit(1)
+    else:
+        main()
