@@ -1,3 +1,6 @@
 sync.env
 .venv
 copilot*
+.vscode/
+__pycache__/
+.coverage
