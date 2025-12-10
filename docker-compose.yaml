@@ -1,0 +1,8 @@
+version: "3.8"
+services:
+  grocy-mealie-sync:
+    build: .
+    container_name: grocy-mealie-sync
+    env_file: 
+      - ./sync.env
+    restart: unless-stopped
