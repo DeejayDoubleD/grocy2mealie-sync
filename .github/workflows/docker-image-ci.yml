@@ -1,4 +1,7 @@
-name: Docker Image CI
+name: Build and push image to dockerhub registry
+permissions:
+  contents: read
+  pull-requests: write
 
 on:
   push:
