@@ -1,4 +1,4 @@
-name: Lint, build and push image to dockerhub registry
+name: Lint, test, build and push image to dockerhub registry
 permissions:
   contents: read
   pull-requests: write
@@ -29,9 +29,22 @@ jobs:
     - name: Analysing the code with pylint
       run: |
         pylint $(git ls-files 'main.py')
+  
+  unittest:
+    needs: pylint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - uses: actions/setup-python@v2
+        with:
+          python-version: '3.13'
+      - name: Test
+        uses: onichandame/python-test-action@master
+        with:
+          deps_list: 'requirement'
 
   docker-push:
-    needs: pylint
+    needs: unittest
     runs-on: ubuntu-latest
     steps:
       -
