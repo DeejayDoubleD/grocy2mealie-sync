@@ -124,9 +124,9 @@ def add_to_mealie_shopping_list(item_name: str, shopping_list_id: str,
         if resp.status_code in (200, 201):
             logger.info("Mealie: added → %s", name)
             return True
-        else:
-            logger.error("Error during POST (%s): %s", resp.status_code, resp.text)
-            return False
+        
+        logger.error("Error during POST (%s): %s", resp.status_code, resp.text)
+        return False
 
     except requests.RequestException as e:
         logger.error("POST error: %s", e)
