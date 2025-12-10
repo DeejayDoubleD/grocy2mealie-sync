@@ -1,7 +1,7 @@
 version: "3.8"
 services:
   grocy-mealie-sync:
-    build: .
+    image: deejaydoubled/grocy2mealie-sync
     container_name: grocy-mealie-sync
     env_file: 
       - ./sync.env
