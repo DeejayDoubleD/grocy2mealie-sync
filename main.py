@@ -1,8 +1,15 @@
+"""
+Grocy to Mealie Sync Service.
+
+Synchronizes missing products from Grocy (inventory system) to Mealie
+(meal planning system) shopping list. Runs as a daemon with configurable
+sync intervals.
+"""
+from typing import Dict, List
 import os
 import time
 import logging
 import requests
-from typing import Dict, List
 from pygrocy2.grocy_api_client import GrocyApiClient
 
 # ------------------------------------------------------------
@@ -26,7 +33,8 @@ MEALIE_SHOPPING_LIST_ID = os.getenv("MEALIE_SHOPPING_LIST_ID", "")
 
 INTERVAL = int(os.getenv("CHECK_INTERVAL", "600"))  # default = 10 min
 
-if not all([GROCY_API_URL, GROCY_API_KEY, MEALIE_BASE_URL, MEALIE_API_KEY, MEALIE_SHOPPING_LIST_ID]):
+if not all([GROCY_API_URL, GROCY_API_KEY, MEALIE_BASE_URL, MEALIE_API_KEY,
+            MEALIE_SHOPPING_LIST_ID]):
     raise SystemExit(
         "❌ Environment variables missing. Please set GROCY_API_URL, GROCY_API_KEY, "
         "MEALIE_API_URL, MEALIE_API_KEY, MEALIE_SHOPPING_LIST_ID"
@@ -51,7 +59,12 @@ def get_mealie_shopping_list_items(shopping_list_id: str) -> Dict[str, dict]:
     """
     Fetches all entries from /api/households/shopping/items (paginated)
     and filters by shoppingListId.
-    Returns: { display_lower: {display, foodId, itemId} }
+
+    Args:
+        shopping_list_id: The shopping list ID to filter by.
+
+    Returns:
+        Dict mapping display_lower to {display, foodId, itemId}.
     """
     url = f"{MEALIE_BASE_URL}/api/households/shopping/items"
     result = {}
@@ -84,7 +97,19 @@ def get_mealie_shopping_list_items(shopping_list_id: str) -> Dict[str, dict]:
     logger.info("Mealie: %d existing shopping list items found.", len(result))
     return result
 
-def add_to_mealie_shopping_list(item_name: str, shopping_list_id: str, quantity: float = 1.0) -> bool:
+def add_to_mealie_shopping_list(item_name: str, shopping_list_id: str,
+                                quantity: float = 1.0) -> bool:
+    """
+    Add an item to the Mealie shopping list.
+
+    Args:
+        item_name: The name of the item to add.
+        shopping_list_id: The shopping list ID.
+        quantity: The quantity of the item (default 1.0).
+
+    Returns:
+        True if successful, False otherwise.
+    """
     url = f"{MEALIE_BASE_URL}/api/households/shopping/items"
     name = item_name.strip()
 
@@ -103,7 +128,7 @@ def add_to_mealie_shopping_list(item_name: str, shopping_list_id: str, quantity:
             logger.error("Error during POST (%s): %s", resp.status_code, resp.text)
             return False
 
-    except Exception as e:
+    except requests.RequestException as e:
         logger.error("POST error: %s", e)
         return False
 
@@ -114,19 +139,24 @@ def add_to_mealie_shopping_list(item_name: str, shopping_list_id: str, quantity:
 # ------------------------------------------------------------
 def get_understock_products() -> List[Dict[str, str]]:
     """
-    Returns products that are below minimum stock according to Grocy.
-    Uses get_volatile_stock() from pygrocy2.
-    Uses only the 'missing_products' list.
+    Get products that are below minimum stock according to Grocy.
+
+    Uses get_volatile_stock() from pygrocy2 and extracts the
+    'missing_products' list.
+
+    Returns:
+        List of dicts with 'id' and 'name' keys.
     """
     try:
         volatile = grocy.get_volatile_stock()
-    except Exception as e:
+    except requests.RequestException as e:
         logger.error("Error while requesting Grocy volatile stock: %s", e)
         return []
 
     result = []
 
-    for item in getattr(volatile, "missing_products", []):
+    missing_products = getattr(volatile, "missing_products", []) or []
+    for item in missing_products:
         name = getattr(item, "name", None)
         pid = getattr(item, "id", None)
 
@@ -147,6 +177,13 @@ def get_understock_products() -> List[Dict[str, str]]:
 # Main Loop
 # ------------------------------------------------------------
 def main():
+    """
+    Main daemon loop that continuously syncs Grocy understock to Mealie.
+
+    Fetches Mealie shopping list items, retrieves understock products from Grocy,
+    and adds missing items to Mealie. Runs in infinite loop with configurable
+    interval between syncs.
+    """
     logger.info("🔄 Grocy → Mealie sync started (using pygrocy missing_products)…")
 
     while True:
@@ -156,7 +193,7 @@ def main():
 
             # Grocy: below-minimum-stock products via pygrocy helper
             understock = get_understock_products()
-            existing_keys = {k.strip().lower() for k in mealie_items.keys()}
+            existing_keys = {k.strip().lower() for k in mealie_items}
             for item in understock:
                 name_key = item.get("name", "").strip().lower()
                 if any(name_key in key for key in existing_keys):
@@ -164,12 +201,13 @@ def main():
                     continue
 
                 logger.info("➕ '%s' will be added to Mealie…", item["name"])
-                ok = add_to_mealie_shopping_list(item["name"], MEALIE_SHOPPING_LIST_ID, quantity=1.0)
+                ok = add_to_mealie_shopping_list(item["name"], MEALIE_SHOPPING_LIST_ID,
+                                                 quantity=1.0)
                 if not ok:
                     logger.warning("Could not add '%s' to Mealie.", item["name"])
 
-        except Exception as e:
-            logger.exception("❌ Error in main loop: %s", e)
+        except requests.RequestException as e:
+            logger.error("❌ API request error in main loop: %s", e)
 
         logger.info("⏳ Waiting %s seconds…\n", INTERVAL)
         time.sleep(INTERVAL)
