@@ -68,4 +68,6 @@ jobs:
         with:
           context: .
           push: true
+          sbom: true
+          provenance: mode=max 
           tags: deejaydoubled/grocy2mealie-sync:latest
