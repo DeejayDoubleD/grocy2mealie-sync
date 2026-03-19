@@ -200,7 +200,7 @@ def health_check() -> Dict[str, dict]:
         "mealie": {"reachable": False, "error": None},
     }
 
-    # Check Grocy connectivity
+    # Check Grocy Connectivity
     try:
         grocy.get_volatile_stock()
         health["grocy"]["reachable"] = True
